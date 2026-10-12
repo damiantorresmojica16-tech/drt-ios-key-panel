@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DRT Panel — vista previa</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #090e17;
+      color: #f6f8fb;
+      --cyan: #ffb454;
+      --panel: #171923;
+      --border: rgba(255,255,255,.09);
+    }
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px 16px;
+      background:
+        radial-gradient(ellipse at 78% 14%, rgba(247,126,41,.13), transparent 36%),
+        #080808;
+    }
+    .phone {
+      width: min(100%, 390px);
+      height: min(900px, calc(100vh - 48px));
+      min-height: 680px;
+      padding: 18px 22px 20px;
+      display: flex;
+      flex-direction: column;
+      isolation: isolate;
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 38px;
+      background:
+        radial-gradient(ellipse at 50% 28%, rgba(222,103,42,.09), transparent 42%),
+        linear-gradient(155deg, #15110f, #080808 72%);
+      box-shadow: 0 28px 90px rgba(0,0,0,.58), 0 0 50px rgba(247,126,41,.09);
+    }
+    .phone:has(.dashboard) {
+      background:
+        radial-gradient(ellipse at 50% 10%, rgba(230,105,30,.14), transparent 36%),
+        radial-gradient(ellipse at 96% 42%, rgba(198,78,19,.06), transparent 32%),
+        linear-gradient(155deg, #17110e, #090807 72%);
+      border-color: rgba(255,158,73,.18);
+      box-shadow: 0 28px 90px rgba(0,0,0,.58), 0 0 48px rgba(211,91,23,.1);
+    }
+    .status {
+      display: flex;
+      justify-content: space-between;
+      padding: 0 5px 12px;
+      color: rgba(255,255,255,.8);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    header { display: flex; align-items: center; gap: 12px; }
+    .brand { font-size: 16px; font-weight: 900; letter-spacing: 2px; }
+    .header-tag { margin-left: auto; color: #b7bdc8; font: 9px monospace; letter-spacing: 1px; }
+    .hero-logo {
+      height: 226px; flex: 0 0 226px; display: grid; place-items: center;
+      margin: -8px -24px -4px;
+      overflow: hidden;
+    }
+    .hero-logo[hidden] { display: none; }
+    .hero-logo img {
+      width: 128%; max-width: none; height: 218px; object-fit: contain;
+      transform: scale(1.08);
+      mix-blend-mode: screen;
+      -webkit-mask-image: radial-gradient(ellipse 48% 48% at 50% 50%, #000 68%, transparent 100%);
+      mask-image: radial-gradient(ellipse 48% 48% at 50% 50%, #000 68%, transparent 100%);
+      filter: drop-shadow(0 10px 28px rgba(235,112,37,.28));
+    }
+    main { margin: 0; padding: 2px 0 12px; }
+    main:has(.dashboard) { flex: 1; min-height: 0; overflow-y: auto; margin: 7px 0; padding: 0; scrollbar-width: none; }
+    .card {
+      padding: 22px;
+      border: 1px solid rgba(255,255,255,.12);
+      border-radius: 22px;
+      background: rgba(15,16,22,.88);
+      backdrop-filter: blur(18px);
+      box-shadow: 0 12px 36px rgba(0,0,0,.15);
+    }
+    .eyebrow { color: var(--cyan); font: 700 9px monospace; letter-spacing: 1.5px; }
+    h1 { margin: 8px 0 0; font-size: 25px; letter-spacing: -.5px; }
+    .description { margin: 16px 0 20px; color: rgba(255,255,255,.56); font-size: 14px; line-height: 1.5; }
+    .key-label-row {
+      display: flex; align-items: center; justify-content: space-between;
+      margin: 0 2px 9px;
+    }
+    .key-label { color: #e8e9ed; font: 700 10px monospace; letter-spacing: 1.2px; }
+    .secure-label { color: #c4a879; font: 9px monospace; letter-spacing: .7px; }
+    .key-field {
+      width: 100%; height: 60px; display: flex; align-items: center; gap: 12px;
+      padding: 0 15px; border: 1px solid rgba(255,255,255,.13); border-radius: 14px;
+      background: linear-gradient(135deg, rgba(29,29,34,.98), rgba(17,18,23,.98));
+      color: #f3b45e; transition: border-color .18s, box-shadow .18s;
+    }
+    .key-field:focus-within { border-color: rgba(255,181,91,.72); box-shadow: 0 0 0 3px rgba(245,153,65,.1); }
+    .key-icon {
+      width: 32px; height: 32px; display: grid; place-items: center; flex: 0 0 auto;
+      border: 1px solid rgba(245,174,86,.2); border-radius: 10px;
+      background: rgba(240,156,63,.08); font-size: 14px;
+    }
+    input {
+      width: 100%; border: 0; outline: 0; background: transparent; color: white;
+      font: 14px monospace; letter-spacing: 1px;
+    }
+    input::placeholder { color: rgba(255,255,255,.35); }
+    .key-help { margin: 10px 2px 0; color: rgba(255,255,255,.43); font-size: 11px; line-height: 1.45; }
+    .key-error { margin: 9px 2px 0; color: #ffad69; font-size: 11px; line-height: 1.4; }
+    button { font: inherit; cursor: pointer; }
+    .primary {
+      width: 100%; height: 52px; margin-top: 18px; border: 0; border-radius: 14px;
+      background: linear-gradient(100deg, #ffd078, #f28c3b);
+      color: #251205; font: 800 12px monospace; letter-spacing: 1.2px;
+    }
+    .primary:hover { filter: brightness(1.08); }
+    .version, .option {
+      width: 100%; display: flex; align-items: center; gap: 12px;
+      margin-top: 10px; padding: 15px; border: 1px solid var(--border);
+      border-radius: 14px; background: var(--panel); color: white; text-align: left;
+    }
+    .version.selected { border-color: rgba(88,216,235,.7); }
+    .version-icon, .option-icon { color: var(--cyan); }
+    .radio { margin-left: auto; color: var(--cyan); }
+    .option { min-height: 53px; margin-top: 9px; padding: 12px 14px; cursor: pointer; }
+    .option input { width: 17px; height: 17px; margin: 0 0 0 auto; accent-color: var(--cyan); }
+    .option-name { font-size: 13px; font-weight: 650; }
+    .back {
+      width: 100%; margin-top: 12px; padding: 14px; border: 0; background: transparent;
+      color: rgba(255,255,255,.65); font: 700 11px monospace; letter-spacing: 1px;
+    }
+    .dashboard { padding: 13px; }
+    .dashboard::-webkit-scrollbar { display: none; }
+    .dash-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .dash-kicker { color: #ffd19a; font: 700 9px monospace; letter-spacing: 1.4px; }
+    .online { display: flex; align-items: center; gap: 6px; color: #e7c9ac; font: 9px monospace; }
+    .online i { width: 7px; height: 7px; border-radius: 50%; background: #ff9b42; box-shadow: 0 0 8px #ff9b42; }
+    .game-card {
+      position: relative; min-height: 160px; overflow: visible; padding: 0;
+      display: flex; align-items: center; justify-content: center;
+      border: 0; border-radius: 0; background: transparent; box-shadow: none;
+    }
+    .game-card::after { content: none; }
+    .game-logo {
+      position: relative; z-index: 1; display: block; width: 100%; height: 160px;
+      object-fit: contain; padding: 0;
+      mix-blend-mode: screen;
+      -webkit-mask-image: radial-gradient(ellipse 48% 49% at 50% 50%, #000 56%, transparent 100%);
+      mask-image: radial-gradient(ellipse 48% 49% at 50% 50%, #000 56%, transparent 100%);
+      filter: drop-shadow(0 0 18px rgba(255,137,54,.34));
+    }
+    .corner { display: none; }
+    .stats { display: grid; grid-template-columns: 1fr; gap: 7px; margin: 9px 0; }
+    .stat { min-width: 0; padding: 10px 9px; border: 1px solid rgba(255,175,104,.16); border-radius: 13px; background: linear-gradient(145deg, rgba(37,27,21,.96), rgba(15,13,12,.96)); box-shadow: inset 0 1px rgba(255,255,255,.05); }
+    .stat-label { color: #c5a588; font: 700 8px monospace; letter-spacing: 1px; }
+    .stat-value { overflow: hidden; margin-top: 6px; color: #f0f2f6; font-size: 10px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+    .section-card { margin-top: 10px; padding: 13px; border: 1px solid rgba(255,175,104,.2); border-radius: 17px; background: linear-gradient(145deg, rgba(34,25,20,.98), rgba(13,12,11,.98)); box-shadow: inset 0 1px rgba(255,255,255,.06), 0 12px 30px rgba(0,0,0,.2); }
+    .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .section-title { color: #f5f8ff; font: 800 10px monospace; letter-spacing: 1.1px; }
+    .section-sub { margin-top: 4px; color: #b89a80; font: 8px monospace; letter-spacing: .7px; }
+    .count { padding: 6px 8px; border-radius: 12px; background: rgba(255,255,255,.08); color: #bac2d0; font: 800 8px monospace; }
+    .license { display: flex; gap: 11px; align-items: center; padding: 11px; border: 1px solid rgba(255,175,104,.2); border-radius: 14px; background: linear-gradient(110deg, #33241a, #17110e); box-shadow: inset 0 1px rgba(255,255,255,.06); }
+    .license-icon { width: 35px; height: 35px; display: grid; place-items: center; border: 1px solid #d49a60; border-radius: 50%; color: #ffe1bd; box-shadow: 0 0 16px rgba(240,133,53,.14); }
+    .license-copy { min-width: 0; flex: 1; }
+    .license-copy strong { display: block; margin-top: 4px; overflow: hidden; color: #e9ebf0; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+    .license-copy small { display: block; margin-top: 5px; color: #c2a58e; font: 8px monospace; }
+    .countdown { display: flex; gap: 5px; margin-top: 8px; }
+    .countdown-unit { flex: 1; padding: 6px 3px; border-radius: 8px; background: rgba(0,0,0,.24); text-align: center; }
+    .countdown-unit strong { display: block; color: #fff; font: 700 14px monospace; }
+    .countdown-unit small { display: block; margin-top: 3px; color: #c2a58e; font: 700 7px monospace; }
+    .status-pill { padding: 5px 7px; border: 1px solid rgba(255,255,255,.17); border-radius: 20px; color: #ccd4e1; font: 700 7px monospace; }
+    .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 10px 0 8px; }
+    .tab { height: 36px; border: 1px solid var(--border); border-radius: 11px; background: rgba(255,255,255,.04); color: #aeb6c4; font: 800 9px monospace; letter-spacing: .8px; }
+    .tab.active { border-color: rgba(255,255,255,.35); background: linear-gradient(110deg, #ffe1b9, #f39a50); color: #261306; box-shadow: 0 4px 14px rgba(229,120,42,.18); }
+    .setting-row { display: flex; align-items: center; gap: 10px; min-height: 46px; margin-top: 7px; padding: 8px; border: 1px solid rgba(255,175,104,.14); border-radius: 12px; background: linear-gradient(110deg, rgba(255,255,255,.07), rgba(255,255,255,.025)); }
+    .setting-icon { width: 29px; height: 29px; display: grid; place-items: center; border-radius: 9px; background: linear-gradient(145deg, rgba(222,119,48,.32), rgba(128,64,30,.2)); color: #ffd0a0; }
+    .setting-name { color: #fff4e8; font: 800 9px monospace; letter-spacing: .8px; }
+    .setting-note { margin-left: auto; color: #c5a588; font: 8px monospace; }
+    .toggle { width: 31px; height: 17px; padding: 2px; border: 0; border-radius: 12px; background: #3a3d46; }
+    .toggle::after { content: ""; display: block; width: 13px; height: 13px; border-radius: 50%; background: #a7adba; transition: transform .15s; }
+    .toggle[aria-pressed="true"] { background: #e8893f; box-shadow: 0 0 12px rgba(232,137,63,.35); }
+    .toggle[aria-pressed="true"]::after { transform: translateX(14px); background: white; }
+    .dashboard-note { margin: 10px 2px 0; color: #c4a78d; font: 8px monospace; line-height: 1.45; text-align: center; }
+    .dash-footer { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,175,104,.12); color: #a88a70; text-align: center; font: 8px monospace; letter-spacing: .6px; }
+    footer { margin-top: auto; padding: 0 0 3px; color: rgba(255,255,255,.34); text-align: center; font: 9px monospace; letter-spacing: 1px; }
+    @media (max-height: 760px) {
+      .phone { min-height: 660px; }
+      .hero-logo { height: 176px; flex-basis: 176px; }
+      .hero-logo img { height: 170px; }
+      main { padding: 2px 0 10px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="phone">
+    <div class="status"><span>9:41</span><span>●●●　Wi-Fi　▰</span></div>
+    <header>
+      <div class="brand">DRT PANEL</div>
+      <div class="header-tag">DRT IO</div>
+    </header>
+    <div class="hero-logo">
+      <img src="file:///C:/Users/Usuario/AppData/Roaming/Code/agentSessionData/447c991c-7647-4d88-9b92-6cd33dbacb01/attachments/5bab38e5-43ac-4746-aaed-abfce1d88c6b/Pasted%20Image.png" alt="Logo DRT IOS VIP Premium Access">
+    </div>
+    <main id="screen"></main>
+    <footer>PANEL DE ACCESO · SIN CONEXIÓN A JUEGOS</footer>
+  </div>
+  <script>
+    const VALIDATION_API_URL = "https://YOUR_DOMAIN/api/validate";
+    const screen = document.querySelector("#screen");
+    let countdownInterval;
+    const options = {
+      loadout: [["ESTADO DEL PANEL", "◉"], ["INDICADOR DE ESTADO", "◌"], ["MODO COMPACTO", "▣"]],
+      visuals: [["RESALTAR SELECCIÓN", "✦"], ["ANIMACIONES SUAVES", "◈"], ["CONTRASTE ALTO", "◐"]]
+    };
+
+    function heading(step, title, description) {
+      return `<div class="eyebrow">${step}</div><h1>${title}</h1>${description ? `<p class="description">${description}</p>` : ""}`;
+    }
+    function showKey() {
+      clearInterval(countdownInterval);
+      document.querySelector(".hero-logo").hidden = false;
+      document.querySelector(".phone > footer").hidden = false;
+      screen.innerHTML = `<section class="card">
+        ${heading("EL MEJOR ACCESO DRT IOS", "Bienvenido a DRT", "Introduce la key que te dio el vendedor de DRT IO.")}
+        <div class="key-label-row"><label class="key-label" for="key">KEY DE ACCESO</label><span class="secure-label">◆　KEY PERSONAL</span></div>
+        <label class="key-field"><span class="key-icon">⌑</span><input id="key" type="password" placeholder="DRT-WEEK 0000" autocomplete="off" aria-label="Key de acceso"></label>
+        <p class="key-help">Tu key es personal. Si no la tienes, solicítala a tu vendedor.</p>
+        <p class="key-error" id="key-error" hidden></p>
+        <button class="primary" id="continue">CONTINUAR　→</button>
+      </section>`;
+      document.querySelector("#continue").addEventListener("click", async () => {
+        const keyInput = document.querySelector("#key");
+        const button = document.querySelector("#continue");
+        const errorMessage = document.querySelector("#key-error");
+        if (!keyInput.value.trim()) {
+          keyInput.focus();
+          return;
+        }
+        button.disabled = true;
+        button.textContent = "VERIFICANDO...";
+        errorMessage.hidden = true;
+        try {
+          const apiURL = new URL(VALIDATION_API_URL);
+          if (apiURL.protocol !== "https:" || apiURL.hostname.toLowerCase() === "your_domain") {
+            throw new Error("Configura la URL HTTPS de validación antes de comprobar keys.");
+          }
+          const response = await fetch(VALIDATION_API_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ key: keyInput.value.trim().toUpperCase() })
+          });
+          if (response.status === 401) throw new Error("Key inválida, vencida o revocada.");
+          if (response.status === 429) throw new Error("Demasiados intentos. Intenta más tarde.");
+          if (!response.ok) throw new Error("El servicio de validación no está disponible.");
+          const validation = await response.json();
+          if (!validation.valid || ![7, 15, 30].includes(validation.duration_days) ||
+              !Number.isInteger(validation.remaining_seconds) || validation.remaining_seconds <= 0) {
+            throw new Error("El servicio devolvió datos de vigencia inválidos.");
+          }
+          showDashboard(validation);
+        } catch (error) {
+          errorMessage.textContent = error instanceof TypeError
+            ? "No se pudo conectar al servicio HTTPS de validación."
+            : error.message;
+          errorMessage.hidden = false;
+          button.disabled = false;
+          button.textContent = "CONTINUAR　→";
+        }
+      });
+      document.querySelector("#key").addEventListener("keydown", event => {
+        if (event.key === "Enter") document.querySelector("#continue").click();
+      });
+    }
+    let dashboardTab = "loadout";
+    function renderSettings() {
+      screen.querySelector("#settings").innerHTML = options[dashboardTab].map(([name, icon], index) => `
+        <div class="setting-row">
+          <span class="setting-icon">${icon}</span><span class="setting-name">${name}</span>
+          <span class="setting-note">LOCAL</span>
+          <button class="toggle" type="button" aria-label="${name}" aria-pressed="${index === 0 && dashboardTab === "loadout"}"></button>
+        </div>`).join("");
+      screen.querySelectorAll(".toggle").forEach(button => button.addEventListener("click", () => {
+        button.setAttribute("aria-pressed", button.getAttribute("aria-pressed") !== "true");
+      }));
+    }
+    function installedIOSVersion() {
+      const match = navigator.userAgent.match(/OS ([\d_]+) like Mac OS X/);
+      return match ? `iOS ${match[1].replaceAll("_", ".")}` : "No disponible";
+    }
+    function showDashboard(validation) {
+      document.querySelector(".hero-logo").hidden = true;
+      document.querySelector(".phone > footer").hidden = true;
+      screen.innerHTML = `<div class="dashboard">
+        <div class="dash-top"><div><div class="dash-kicker">DRT IOS / PANEL DE AIMBOTS</div><div class="section-sub">PANEL PERSONAL</div></div><div class="online"><i></i>LISTO</div></div>
+        <section class="game-card">
+          <span class="corner tl"></span><span class="corner br"></span>
+          <img class="game-logo" src="file:///C:/Users/Usuario/AppData/Roaming/Code/agentSessionData/447c991c-7647-4d88-9b92-6cd33dbacb01/attachments/93086983-ac10-43b9-abf2-e0543d8c1e42/Pasted%20Image.png" alt="Logo DRT IOS VIP Premium Access">
+        </section>
+        <div class="stats">
+          <div class="stat"><div class="stat-label">VERSIÓN DE iOS</div><div class="stat-value">${installedIOSVersion()}</div></div>
+        </div>
+        <section class="section-card">
+          <div class="section-head"><div><div class="section-title">DRT PANEL</div><div class="section-sub">PREFERENCIAS DE INTERFAZ</div></div><span class="count">3 AJUSTES</span></div>
+          <div class="license"><div class="license-icon">◷</div><div class="license-copy"><div class="dash-kicker">DRT IOS KEY TIME LEFT</div><strong>${{7: "WEEK", 15: "2 WEEKS", 30: "1 MONTH"}[validation.duration_days]}</strong><div class="countdown" id="countdown"></div></div></div>
+          <div class="tabs"><button class="tab active" data-tab="loadout">◇　PANEL</button><button class="tab" data-tab="visuals">✦　VISUAL</button></div>
+          <div id="settings"></div>
+          <p class="dashboard-note">Ajustes únicamente visuales. No controlan ni modifican el juego.</p>
+          <button class="back" id="back">↩　VOLVER AL ACCESO</button>
+        </section>
+        <div class="dash-footer">DRT IOS　·　PANEL DE CONFIGURACIÓN LOCAL</div>
+      </div>`;
+      renderSettings();
+      screen.querySelectorAll("[data-tab]").forEach(button => button.addEventListener("click", () => {
+        dashboardTab = button.dataset.tab;
+        screen.querySelectorAll("[data-tab]").forEach(tab => tab.classList.toggle("active", tab === button));
+        renderSettings();
+      }));
+      document.querySelector("#back").addEventListener("click", showKey);
+      const deadline = performance.now() + validation.remaining_seconds * 1000;
+      const updateCountdown = () => {
+        const total = Math.max(0, Math.ceil((deadline - performance.now()) / 1000));
+        const values = [
+          [Math.floor(total / 86400), "DAYS"],
+          [Math.floor((total % 86400) / 3600), "HRS"],
+          [Math.floor((total % 3600) / 60), "MINS"],
+          [total % 60, "SECS"]
+        ];
+        document.querySelector("#countdown").innerHTML = values.map(([value, label]) =>
+          `<span class="countdown-unit"><strong>${String(value).padStart(2, "0")}</strong><small>${label}</small></span>`
+        ).join("");
+        if (total === 0) {
+          clearInterval(countdownInterval);
+          document.querySelector("#countdown").innerHTML = '<strong class="key-error">KEY EXPIRED</strong>';
+        }
+      };
+      updateCountdown();
+      countdownInterval = setInterval(updateCountdown, 1000);
+    }
+    showKey();
+  </script>
+</body>
+</html>

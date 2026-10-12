@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: drt-key-service
+    runtime: python
+    plan: starter
+    buildCommand: python -m compileall -q key_bot.py key_api.py
+    startCommand: python key_bot.py
+    healthCheckPath: /healthz
+    disk:
+      name: drt-key-database
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_ADMIN_ID
+        sync: false
+      - key: KEYBOT_DB_PATH
+        value: /var/data/keys.sqlite3
+      - key: KEY_API_HOST
+        value: 0.0.0.0
+      - key: KEY_API_TRUST_PROXY
+        value: "true"
