@@ -9,9 +9,7 @@ import logging
 import os
 import re
 import secrets
-import sqlite3
 import time
-from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -19,8 +17,8 @@ from urllib.request import Request, urlopen
 from key_api import start_validation_api
 
 LOGGER = logging.getLogger("key_bot")
-# Optional local configuration. Keep real credentials private and out of source control.
-BOT_TOKEN = "8861357998:AAHuiSL0oewmTeEetKPdxpvKWpwarscuNcM"
+# Keep credentials in environment variables, never in source control.
+BOT_TOKEN = ""
 ADMIN_ID = 0
 ALLOWED_VALIDITY_DAYS = (7, 15, 30)
 KEY_GENERATION_ATTEMPTS = 20
@@ -46,30 +44,39 @@ class TelegramAPIError(RuntimeError):
 
 
 class KeyBot:
-    def __init__(self, token: str, admin_id: int, database_path: Path) -> None:
+    def __init__(self, token: str, admin_id: int, database_url: str) -> None:
+        import psycopg
+
         self.admin_id = admin_id
         self.api_url = f"https://api.telegram.org/bot{token}/"
-        database_path.parent.mkdir(parents=True, exist_ok=True)
-        self.connection = sqlite3.connect(database_path)
-        self.connection.row_factory = sqlite3.Row
-        self.connection.execute("PRAGMA journal_mode = WAL")
-        self.connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS access_keys (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                key_hash TEXT NOT NULL UNIQUE,
-                key_hint TEXT NOT NULL,
-                created_at INTEGER NOT NULL,
-                expires_at INTEGER NOT NULL,
-                revoked_at INTEGER
-            );
-            CREATE TABLE IF NOT EXISTS bot_state (
-                name TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
-            """
-        )
-        self.connection.commit()
+        self.database_url = database_url
+        with psycopg.connect(self.database_url) as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS access_keys (
+                    id BIGSERIAL PRIMARY KEY,
+                    key_hash TEXT NOT NULL UNIQUE,
+                    key_hint TEXT NOT NULL,
+                    created_at BIGINT NOT NULL,
+                    expires_at BIGINT NOT NULL,
+                    revoked_at BIGINT
+                )
+                """
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS bot_state (
+                    name TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+                """
+            )
+
+    def connect_database(self) -> Any:
+        import psycopg
+        from psycopg.rows import dict_row
+
+        return psycopg.connect(self.database_url, row_factory=dict_row)
 
     def api_call(self, method: str, payload: dict[str, Any]) -> Any:
         request = Request(
@@ -112,16 +119,17 @@ class KeyBot:
         )
 
     def current_offset(self) -> int | None:
-        row = self.connection.execute(
-            "SELECT value FROM bot_state WHERE name = 'update_offset'"
-        ).fetchone()
+        with self.connect_database() as connection:
+            row = connection.execute(
+                "SELECT value FROM bot_state WHERE name = 'update_offset'"
+            ).fetchone()
         return int(row["value"]) if row else None
 
     def save_offset(self, offset: int) -> None:
-        with self.connection:
-            self.connection.execute(
+        with self.connect_database() as connection:
+            connection.execute(
                 """
-                INSERT INTO bot_state (name, value) VALUES ('update_offset', ?)
+                INSERT INTO bot_state (name, value) VALUES ('update_offset', %s)
                 ON CONFLICT(name) DO UPDATE SET value = excluded.value
                 """,
                 (str(offset),),
@@ -131,21 +139,23 @@ class KeyBot:
         now = int(time.time())
         expires_at = now + days * 24 * 60 * 60
         issued: list[tuple[str, int]] = []
-        with self.connection:
+        with self.connect_database() as connection:
             for _ in range(count):
                 for _ in range(KEY_GENERATION_ATTEMPTS):
                     key = generate_key(days)
                     digest = hashlib.sha256(key.encode("ascii")).hexdigest()
-                    cursor = self.connection.execute(
+                    row = connection.execute(
                         """
-                        INSERT OR IGNORE INTO access_keys
+                        INSERT INTO access_keys
                             (key_hash, key_hint, created_at, expires_at)
-                        VALUES (?, ?, ?, ?)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT(key_hash) DO NOTHING
+                        RETURNING id
                         """,
                         (digest, key[-4:], now, expires_at),
-                    )
-                    if cursor.rowcount == 1:
-                        issued.append((key, int(cursor.lastrowid)))
+                    ).fetchone()
+                    if row:
+                        issued.append((key, int(row["id"])))
                         break
                 else:
                     raise RuntimeError(
@@ -156,25 +166,26 @@ class KeyBot:
     def revoke_key(self, key: str) -> bool:
         digest = hashlib.sha256(key.upper().encode("utf-8")).hexdigest()
         now = int(time.time())
-        with self.connection:
-            cursor = self.connection.execute(
+        with self.connect_database() as connection:
+            cursor = connection.execute(
                 """
                 UPDATE access_keys
-                SET revoked_at = ?
-                WHERE key_hash = ? AND revoked_at IS NULL
+                SET revoked_at = %s
+                WHERE key_hash = %s AND revoked_at IS NULL
                 """,
                 (now, digest),
             )
         return cursor.rowcount == 1
 
     def list_keys(self, limit: int) -> str:
-        rows = self.connection.execute(
-            """
-            SELECT key_hint, created_at, expires_at, revoked_at
-            FROM access_keys ORDER BY id DESC LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
+        with self.connect_database() as connection:
+            rows = connection.execute(
+                """
+                SELECT key_hint, created_at, expires_at, revoked_at
+                FROM access_keys ORDER BY id DESC LIMIT %s
+                """,
+                (limit,),
+            ).fetchall()
         if not rows:
             return "Todavía no hay keys emitidas."
 
@@ -314,9 +325,9 @@ class KeyBot:
             raise
 
     def revoke_issued_row(self, row_id: int) -> None:
-        with self.connection:
-            self.connection.execute(
-                "UPDATE access_keys SET revoked_at = ? WHERE id = ?",
+        with self.connect_database() as connection:
+            connection.execute(
+                "UPDATE access_keys SET revoked_at = %s WHERE id = %s",
                 (int(time.time()), row_id),
             )
 
@@ -341,18 +352,31 @@ class KeyBot:
         else:
             self.send_message(chat_id, "No se encontró una key activa con ese valor.")
 
-    def run(self) -> None:
+    def configure_webhook(self, webhook_url: str, secret: str) -> None:
+        bot = self.api_call("getMe", {})
+        LOGGER.info("Connected to Telegram as @%s (id %s)", bot.get("username"), bot.get("id"))
+        self.api_call(
+            "setWebhook",
+            {
+                "url": webhook_url,
+                "secret_token": secret,
+                "allowed_updates": ["message", "callback_query"],
+            },
+        )
+        LOGGER.info(
+            "Private key bot webhook configured; key format: %s",
+            KEY_FORMAT_LABEL,
+        )
+
+    def run_polling(self) -> None:
         offset = self.current_offset()
         bot = self.api_call("getMe", {})
         LOGGER.info("Connected to Telegram as @%s (id %s)", bot.get("username"), bot.get("id"))
         webhook = self.api_call("getWebhookInfo", {})
         if webhook.get("url"):
-            LOGGER.warning("Removing configured webhook so long polling can receive updates")
+            LOGGER.warning("Removing configured webhook so local polling can receive updates")
             self.api_call("deleteWebhook", {"drop_pending_updates": False})
-        LOGGER.info(
-            "Private key bot started; key format: %s; send /start in a private chat",
-            KEY_FORMAT_LABEL,
-        )
+        LOGGER.info("Private key bot started in local polling mode")
         while True:
             try:
                 payload: dict[str, Any] = {
@@ -395,7 +419,9 @@ def main() -> None:
     except ValueError as error:
         raise SystemExit("Set TELEGRAM_ADMIN_ID to your positive Telegram user ID.") from error
 
-    database_path = Path(os.environ.get("KEYBOT_DB_PATH", "keys.sqlite3")).resolve()
+    database_url = os.environ.get("DATABASE_URL", "").strip()
+    if not database_url:
+        raise SystemExit("Set DATABASE_URL to the Supabase PostgreSQL connection string.")
     api_host = os.environ.get("KEY_API_HOST", "127.0.0.1")
     try:
         api_port = int(
@@ -412,11 +438,21 @@ def main() -> None:
         "yes",
     }
 
-    bot = KeyBot(token, admin_id, database_path)
-    api_server = start_validation_api(database_path, api_host, api_port, trust_proxy)
+    webhook_secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
+    render_url = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+    bot = KeyBot(token, admin_id, database_url)
+    api_server = start_validation_api(
+        database_url, api_host, api_port, trust_proxy, bot, webhook_secret
+    )
     LOGGER.info("Validation API listening on %s:%s", api_host, api_port)
     try:
-        bot.run()
+        if render_url:
+            if not webhook_secret:
+                raise SystemExit("Set TELEGRAM_WEBHOOK_SECRET for Telegram webhook delivery.")
+            bot.configure_webhook(f"{render_url}/telegram/webhook", webhook_secret)
+            api_server.wait_for_shutdown()
+        else:
+            bot.run_polling()
     finally:
         api_server.shutdown()
         api_server.server_close()

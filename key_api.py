@@ -7,12 +7,11 @@ import ipaddress
 import json
 import logging
 import re
-import sqlite3
+import hmac
 import threading
 import time
 from collections import defaultdict, deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from typing import Any
 
 
@@ -22,6 +21,7 @@ VALIDITY_LABELS = {7: "WEEK", 15: "2 WEEKS", 30: "1 MONTH"}
 RATE_LIMIT_WINDOW_SECONDS = 60
 RATE_LIMIT_REQUESTS = 10
 MAX_REQUEST_BYTES = 1024
+MAX_WEBHOOK_BYTES = 1_048_576
 
 
 class ValidationHTTPServer(ThreadingHTTPServer):
@@ -30,14 +30,25 @@ class ValidationHTTPServer(ThreadingHTTPServer):
     def __init__(
         self,
         address: tuple[str, int],
-        database_path: Path,
+        database_url: str,
         trust_proxy: bool,
+        bot: Any | None,
+        webhook_secret: str,
     ) -> None:
         super().__init__(address, ValidationRequestHandler)
-        self.database_path = database_path
+        self.database_url = database_url
         self.trust_proxy = trust_proxy
+        self.bot = bot
+        self.webhook_secret = webhook_secret
         self.request_times: dict[str, deque[float]] = defaultdict(deque)
         self.rate_limit_lock = threading.Lock()
+        self.bot_update_lock = threading.Lock()
+        self._serve_thread: threading.Thread | None = None
+
+    def wait_for_shutdown(self) -> None:
+        if self._serve_thread is None:
+            raise RuntimeError("The validation server thread was not started.")
+        self._serve_thread.join()
 
 
 class ValidationRequestHandler(BaseHTTPRequestHandler):
@@ -67,15 +78,20 @@ class ValidationRequestHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            with sqlite3.connect(self.server.database_path, timeout=5) as connection:
+            import psycopg
+
+            with psycopg.connect(self.server.database_url) as connection:
                 connection.execute("SELECT 1 FROM access_keys LIMIT 1").fetchone()
-        except sqlite3.Error:
+        except psycopg.Error:
             LOGGER.exception("Database health check failed")
             self.send_json(503, {"error": "service_unavailable"})
             return
         self.send_json(200, {"ok": True})
 
     def do_POST(self) -> None:
+        if self.path == "/telegram/webhook":
+            self._handle_telegram_webhook()
+            return
         if self.path != "/api/validate":
             self.send_json(404, {"error": "not_found"})
             return
@@ -109,20 +125,21 @@ class ValidationRequestHandler(BaseHTTPRequestHandler):
 
         digest = hashlib.sha256(key.encode("ascii")).hexdigest()
         try:
-            connection = sqlite3.connect(self.server.database_path, timeout=5)
-            connection.row_factory = sqlite3.Row
-            try:
+            import psycopg
+            from psycopg.rows import dict_row
+
+            with psycopg.connect(
+                self.server.database_url, row_factory=dict_row
+            ) as connection:
                 row = connection.execute(
                     """
                     SELECT created_at, expires_at, revoked_at
                     FROM access_keys
-                    WHERE key_hash = ?
+                    WHERE key_hash = %s
                     """,
                     (digest,),
                 ).fetchone()
-            finally:
-                connection.close()
-        except sqlite3.Error:
+        except psycopg.Error:
             LOGGER.exception("Database error while validating a key")
             self.send_json(503, {"error": "service_unavailable"})
             return
@@ -151,6 +168,43 @@ class ValidationRequestHandler(BaseHTTPRequestHandler):
             },
         )
 
+    def _handle_telegram_webhook(self) -> None:
+        provided_secret = self.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+        if (
+            not self.server.webhook_secret
+            or not hmac.compare_digest(provided_secret, self.server.webhook_secret)
+        ):
+            self.send_json(403, {"error": "forbidden"})
+            return
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            self.send_json(400, {"error": "invalid_request"})
+            return
+        if not 1 <= content_length <= MAX_WEBHOOK_BYTES:
+            self.send_json(400, {"error": "invalid_request"})
+            return
+        try:
+            update = json.loads(self.rfile.read(content_length))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self.send_json(400, {"error": "invalid_request"})
+            return
+        if not isinstance(update, dict):
+            self.send_json(400, {"error": "invalid_request"})
+            return
+        if self.server.bot is None:
+            LOGGER.error("Telegram webhook received without a configured bot handler")
+            self.send_json(503, {"error": "service_unavailable"})
+            return
+        try:
+            with self.server.bot_update_lock:
+                self.server.bot.handle_update(update)
+        except Exception:
+            LOGGER.exception("Telegram webhook update processing failed")
+            self.send_json(500, {"error": "webhook_processing_failed"})
+            return
+        self.send_json(200, {"ok": True})
+
     def _within_rate_limit(self) -> bool:
         client_ip = self.client_address[0]
         if self.server.trust_proxy:
@@ -171,13 +225,21 @@ class ValidationRequestHandler(BaseHTTPRequestHandler):
 
 
 def start_validation_api(
-    database_path: Path, host: str, port: int, trust_proxy: bool = False
+    database_url: str,
+    host: str,
+    port: int,
+    trust_proxy: bool = False,
+    bot: Any | None = None,
+    webhook_secret: str = "",
 ) -> ValidationHTTPServer:
-    server = ValidationHTTPServer((host, port), database_path, trust_proxy)
+    server = ValidationHTTPServer(
+        (host, port), database_url, trust_proxy, bot, webhook_secret
+    )
     thread = threading.Thread(
         target=server.serve_forever,
         name="key-validation-api",
         daemon=True,
     )
     thread.start()
+    server._serve_thread = thread
     return server
